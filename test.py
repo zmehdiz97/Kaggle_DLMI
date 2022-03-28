@@ -4,16 +4,12 @@ import skimage.io
 from tqdm import tqdm
 import zipfile
 import numpy as np
-import tifffile
-os.environ['PATH'] = 'C:\\Users\\mehdi\\anaconda3\\openslide-win64-20171122\\bin' + ';' + os.environ['PATH']
-os.add_dll_directory('C:\\Users\\mehdi\\anaconda3\\openslide-win64-20171122\\bin')
-import openslide
 
-TRAIN = 'data/train'
-OUT_TRAIN = 'data/train_L1_128x128'
-sz = 256 #tile size
-N = 64  #number of tiles
-L = 1    #[0-2] tiff layer
+TRAIN = 'data/train_label_masks'
+OUT_TRAIN = 'data/train_label_masks_128x128'
+sz = 128 #tile size
+N = 128  #number of tiles
+L = 0    #[0-2] tiff layer
 A = 0    #[0-3] if not equal to 0, adds extra sz//2 padding to generate new tiles
 
 os.makedirs(OUT_TRAIN, exist_ok=True)
@@ -23,6 +19,7 @@ def tile(img):
     shape = img.shape
     pad0,pad1 = (sz - shape[0]%sz)%sz, (sz - shape[1]%sz)%sz
     padval = 255
+    print(shape, np.all(img == 0), np.sum(img > 0))
 
     if A == 1:
         img = np.pad(img,[[pad0//2 + sz//2,pad0-pad0//2 + sz//2],[pad1//2,pad1-pad1//2],[0,0]],
@@ -61,11 +58,11 @@ def convert(name):
     if name in rdy_dict and rdy_dict[name] == N:#2*N:
         return [],[]
     x_tot,x2_tot = [],[]
-    #img = tifffile.imread(os.path.join(TRAIN,name+'.tiff'))[L] #skimage.io.MultiImage
-    img = openslide.OpenSlide(os.path.join(TRAIN,name+'.tiff'))
-    dim = img.level_dimensions
-    img = np.array(img.read_region((0,0), L, dim[L]))[:,:,:3]
-    print(img.shape)
+    img = skimage.io.MultiImage(os.path.join(TRAIN,name+'.tiff'))[L]
+    print(type(img))
+    rgb_weights = [0.2989, 0.5870, 0.1140]
+    img = np.dot(img[...,:3], rgb_weights)
+    print(type(img))
     mask = None
     tiles = tile(img)
     for idx,img in enumerate(tiles):

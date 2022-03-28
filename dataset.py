@@ -23,11 +23,11 @@ def img2tensor(img,dtype:np.dtype=np.float32):
     img = np.transpose(img,(2,0,1))
     return torch.from_numpy(img.astype(dtype, copy=False))
 
-
+STATS = ((0.87622766, 0.75070891, 0.83482135) ,(0.39165375, 0.51765024, 0.41787194)) #(0.63, 0.41, 0.59), (0.48, 0.46, 0.43)
 def get_aug(p=0.2, train=True):
     trans = [
         transforms.ToTensor(),
-        transforms.Normalize((0.63, 0.41, 0.59), (0.48, 0.46, 0.43))
+        transforms.Normalize(STATS[0], STATS[1])
     ]
     aug = [
         transforms.RandomHorizontalFlip(p),
@@ -52,6 +52,7 @@ class CustomDataset(Dataset):
         self.path = path
         self.transforms = transforms
         self.N=N
+        self.train = train
     def __len__(self):
         return len(self.df)
 
@@ -61,7 +62,12 @@ class CustomDataset(Dataset):
         
         image_id = self.df.iloc[idx].image_id
         imgs = []
-        for i in range(self.N):
+        ntiles = 64
+        n = self.N if self.train else 2*self.N
+        if self.train: ids = range(n) # ids = random.choices(range(ntiles),k=n)
+        else: ids = range(min(n,ntiles))
+        
+        for i in ids:
             img = Image.open(os.path.join(self.path,image_id+'_'+str(i)+'.png'))
             #img = cv2.cvtColor(cv2.imread(os.path.join(TRAIN,image_id+'_'+str(i)+'.png')), cv2.COLOR_BGR2RGB)
             #img = 255 - img

@@ -44,7 +44,7 @@ def main():
         parser.add_argument('--labels', type=str, default='data/trainv2.csv', help='Path to CSV with image ids and labels')
         parser.add_argument('--path', type=str, default='data/train_128x128', help='Path to image tiles')
         parser.add_argument('--nepochs', type=int, default=10, help='Number of epochs')
-        parser.add_argument('--bs', type=int, default=1, help='batch size')
+        parser.add_argument('--bs', type=int, default=4, help='batch size')
 
         parser.add_argument('--resume_from', default=None, help='Path to checkpoint')
 
@@ -59,6 +59,36 @@ def main():
     #    args = parser.parse_args(sub_args)
     #    if not os.path.exists('./outputs'): os.mkdir('./outputs')
     #    test(test_data_transforms, './outputs', args.PATH_TO_CHECKPOINT, args.PATH_TO_TEST_SET, model_args)
+    
+def eval(model, loader, criterion):
+    with torch.no_grad():
+        model.eval()
+        N = 0
+        tot_loss = 0
+        l = np.array([])
+        o = np.array([])
+        for i, (images, labels) in enumerate(loader):
+            #if (i+1) * batch_size > 100000:   # 100000 data samples should be sufficient to estimate the loss and the f1 score
+            #    break                         # to speed up the training
+            if use_gpu: 
+                images, labels = images.cuda(), labels.cuda().squeeze(-1)
+            outputs = model(images)
+
+            # Loss
+            loss = criterion(outputs, labels)
+            N += images.shape[0]
+            tot_loss += images.shape[0] * loss.item()
+
+            # F1 score
+            outputs = torch.Tensor.cpu(outputs)
+            labels = torch.Tensor.cpu(labels)
+            outputs = torch.argmax(outputs, dim=1)
+            o = np.append(o, outputs)
+            l = np.append(l, labels)
+
+        f1 = f1_score(l, o, average="macro")
+
+        return tot_loss/N, f1
 
 def train(nepochs, batch_size, labels, path, resume_from=None):
     # Initialize logger
@@ -82,7 +112,7 @@ def train(nepochs, batch_size, labels, path, resume_from=None):
     logger.write("batch size is {} \n".format(batch_size))
     print('started data loading ...')
         
-    N=128
+    N=36
     df = pd.read_csv(labels)
     print(df.columns)
     train_dataset = CustomDataset(df,N, path, train=True, transforms=train_data_transforms)
@@ -101,7 +131,7 @@ def train(nepochs, batch_size, labels, path, resume_from=None):
 
     criterion = nn.CrossEntropyLoss()
     #criterion = nn.CrossEntropyLoss(weight=weights.cuda())
-    optimizer = optim.Adam(model.parameters(), 1e-4, weight_decay=1e-6)
+    optimizer = optim.Adam(model.parameters(), lr=1e-5, weight_decay=1e-6)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.1, patience=5)
     if resume_from is not None:
         print('Loading from checkpoint ...')
@@ -120,15 +150,15 @@ def train(nepochs, batch_size, labels, path, resume_from=None):
     #best_loss = 1e10
     best_f1 = 0
     #total_train_loss = 0
-    batch_print_save = 500
+    batch_print_save = 50
     for epoch in range(nepochs):
 
         logger.print_and_write(f'STARTING EPOCH {epoch}')
-
+        model.train()   
         for batch_idx, (images, labels) in enumerate(tqdm(train_loader)):
-            model.train()
+            
             if use_gpu: 
-                images, labels = images.cuda(), labels.cuda()
+                images, labels = images.cuda(), labels.cuda().squeeze(-1)
             optimizer.zero_grad()
             outputs = model(images)
             loss = criterion(outputs, labels)
@@ -167,6 +197,7 @@ def train(nepochs, batch_size, labels, path, resume_from=None):
                     }
                     torch.save(checkpoint, model_file)
                     best_f1 = val_f1
+                model.train()
         
 
         model_file = os.path.join(models_dir, f'epoch_{epoch}.pth')

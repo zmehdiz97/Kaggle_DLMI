@@ -43,8 +43,8 @@ def main():
         parser = ArgumentParser()
         parser.add_argument('--labels', type=str, default='data/trainv2.csv', help='Path to CSV with image ids and labels')
         parser.add_argument('--path', type=str, default='data/train_L1_256x256', help='Path to image tiles')
-        parser.add_argument('--nepochs', type=int, default=10, help='Number of epochs')
-        parser.add_argument('--bs', type=int, default=4, help='batch size')
+        parser.add_argument('--nepochs', type=int, default=100, help='Number of epochs')
+        parser.add_argument('--bs', type=int, default=2, help='batch size')
 
         parser.add_argument('--resume_from', default=None, help='Path to checkpoint')
 
@@ -107,7 +107,7 @@ def train(nepochs, batch_size, labels, path, resume_from=None):
     validation_data_transforms = get_aug(p=0.2, train=False)
 
     # Load data
-    num_workers = 8
+    num_workers = 4
     logger.write("the train transforms are \n {}\n".format(train_data_transforms))
     logger.write("batch size is {} \n".format(batch_size))
     print('started data loading ...')
@@ -131,7 +131,7 @@ def train(nepochs, batch_size, labels, path, resume_from=None):
 
     criterion = nn.CrossEntropyLoss()
     #criterion = nn.CrossEntropyLoss(weight=weights.cuda())
-    optimizer = optim.Adam(model.parameters(), lr=1e-5, weight_decay=1e-6)
+    optimizer = optim.Adam(model.parameters(), lr=1e-4)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.1, patience=5)
     if resume_from is not None:
         print('Loading from checkpoint ...')
@@ -150,12 +150,13 @@ def train(nepochs, batch_size, labels, path, resume_from=None):
     #best_loss = 1e10
     best_f1 = 0
     #total_train_loss = 0
-    batch_print_save = 50
     for epoch in range(nepochs):
 
         logger.print_and_write(f'STARTING EPOCH {epoch}')
         model.train()   
-        for batch_idx, (images, labels) in enumerate(tqdm(train_loader)):
+        bar = tqdm(train_loader)
+        train_loss = []
+        for batch_idx, (images, labels) in enumerate(bar):
             
             if use_gpu: 
                 images, labels = images.cuda(), labels.cuda().squeeze(-1)
@@ -166,48 +167,40 @@ def train(nepochs, batch_size, labels, path, resume_from=None):
             loss.backward()
             optimizer.step()
 
-            ## print and save model every number of mini-batches or last mini-batch
-            if (batch_idx % batch_print_save == batch_print_save - 1) or (batch_idx == len(train_loader)-1):  
-                ## compute train and val losses 
-                train_loss, train_f1 = eval(model, train_loader, criterion)
-                # train_loss, train_f1 = 0,0
-                #train_loss = total_train_loss/batch_print_save
-                val_loss, val_f1 = eval(model, valid_loader, criterion)
-                logger.write('[%d, %5d] training loss: %.3f - validation loss: %.3f - training macro f1 score: %.3f - validation macro f1 score: %.3f' %(epoch, batch_idx + 1, train_loss, val_loss, train_f1, val_f1))
-                #total_train_loss = 0
-                ## scheduler step
-                scheduler.step(val_loss)
-                
-                ## save a model every time the validation loss improves
-                # if val_loss < best_loss: 
-                #     logger.write('saving new best model !')
-                #     model_file = os.path.join(models_dir, f'{model_name}_best.pth')
-                #     torch.save(model.state_dict(), model_file)
-                #     best_loss = val_loss
-
-                ## save a model every time the f1 score improves
-                if val_f1 > best_f1: 
-                    logger.write('saving new best model !')
-                    model_file = os.path.join(models_dir, 'best.pth')
-                    checkpoint = {
-                        'epoch': epoch + 1,
-                        'model': model.state_dict(),
-                        'optimizer': optimizer.state_dict(),
-                        'scheduler': scheduler.state_dict()
-                    }
-                    torch.save(checkpoint, model_file)
-                    best_f1 = val_f1
-                model.train()
+            train_loss.append(loss.detach().cpu().numpy())
+            smooth_loss = sum(train_loss[-10:]) / min(len(train_loss), 10)
+            bar.set_description('loss: %.5f' % (smooth_loss))
+            
+        ## compute train and val losses 
+        train_loss, train_f1 = eval(model, train_loader, criterion)
+        # train_loss, train_f1 = 0,0
+        #train_loss = total_train_loss/batch_print_save
+        val_loss, val_f1 = eval(model, valid_loader, criterion)
+        logger.print_and_write('[%d, %5d] training loss: %.3f - validation loss: %.3f - training macro f1 score: %.3f - validation macro f1 score: %.3f' %(epoch, batch_idx + 1, train_loss, val_loss, train_f1, val_f1))
+        #total_train_loss = 0
+        ## scheduler step
+        scheduler.step(val_loss)
         
+        ## save a model every time the validation loss improves
+        # if val_loss < best_loss: 
+        #     logger.write('saving new best model !')
+        #     model_file = os.path.join(models_dir, f'{model_name}_best.pth')
+        #     torch.save(model.state_dict(), model_file)
+        #     best_loss = val_loss
 
-        model_file = os.path.join(models_dir, f'epoch_{epoch}.pth')
-        checkpoint = {
-            'epoch': epoch + 1,
-            'model': model.state_dict(),
-            'optimizer': optimizer.state_dict(),
-            'scheduler': scheduler.state_dict(),
-        }
-        torch.save(checkpoint, model_file)
+        ## save a model every time the f1 score improves
+        if val_f1 > best_f1: 
+            logger.print_and_write('saving new best model !')
+            model_file = os.path.join(models_dir, 'best.pth')
+            checkpoint = {
+                'epoch': epoch + 1,
+                'model': model.state_dict(),
+                'optimizer': optimizer.state_dict(),
+                'scheduler': scheduler.state_dict()
+            }
+            torch.save(checkpoint, model_file)
+            best_f1 = val_f1
+    
 
     logger.print_and_write(f"Finished training at {datetime.datetime.now()} \n")
     logger.print_and_write("Starting prediction ... \n")

@@ -18,7 +18,7 @@ import numpy as np
 
 from utils import seed_everything, Logger
 from dataset import get_aug, CustomDataset
-from model import Model
+from model import Model, effnet
 
 
 
@@ -42,7 +42,7 @@ def main():
     if args.function == "train":
         parser = ArgumentParser()
         parser.add_argument('--labels', type=str, default='data/trainv2.csv', help='Path to CSV with image ids and labels')
-        parser.add_argument('--path', type=str, default='data/train_128x128', help='Path to image tiles')
+        parser.add_argument('--path', type=str, default='data/train_L1_256x256', help='Path to image tiles')
         parser.add_argument('--nepochs', type=int, default=10, help='Number of epochs')
         parser.add_argument('--bs', type=int, default=4, help='batch size')
 
@@ -112,7 +112,7 @@ def train(nepochs, batch_size, labels, path, resume_from=None):
     logger.write("batch size is {} \n".format(batch_size))
     print('started data loading ...')
         
-    N=36
+    N=16
     df = pd.read_csv(labels)
     print(df.columns)
     train_dataset = CustomDataset(df,N, path, train=True, transforms=train_data_transforms)
@@ -125,7 +125,7 @@ def train(nepochs, batch_size, labels, path, resume_from=None):
     print('finished data loading !')
 
     # Initialize a model according to the name of model defined in params.py
-    model = Model()
+    model = effnet()
     if use_gpu: model.cuda()
     logger.write(f'{model} \n')
 

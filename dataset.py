@@ -62,15 +62,15 @@ class CustomDataset(Dataset):
         
         image_id = self.df.iloc[idx].image_id
         imgs = []
-        ntiles = 64
+        ntiles = 38
         n = self.N if self.train else 2*self.N
-        if self.train: ids = range(n) # ids = random.choices(range(ntiles),k=n)
+        if self.train:  ids = random.choices(range(ntiles),k=n)
         else: ids = range(min(n,ntiles))
         
         for i in ids:
-            img = Image.open(os.path.join(self.path,image_id+'_'+str(i)+'.png'))
-            #img = cv2.cvtColor(cv2.imread(os.path.join(TRAIN,image_id+'_'+str(i)+'.png')), cv2.COLOR_BGR2RGB)
-            #img = 255 - img
+            #img = Image.open(os.path.join(self.path,image_id+'_'+str(i)+'.png'))
+            img = cv2.cvtColor(cv2.imread(os.path.join(self.path,image_id+'_'+str(i)+'.png')), cv2.COLOR_BGR2RGB)
+            img = 255 - img
             if self.transforms is not None:
                 img = self.transforms(img)
             imgs.append(img)

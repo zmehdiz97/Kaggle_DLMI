@@ -1,0 +1,19 @@
+Experiment started at 2022-03-28 01:49:28.097711
+Using GPU 
+
+the train transforms are 
+ Compose(
+    ToTensor()
+    Normalize(mean=(0.63, 0.41, 0.59), std=(0.48, 0.46, 0.43))
+    RandomHorizontalFlip(p=0.2)
+    RandomVerticalFlip(p=0.2)
+    RandomApply(
+    p=0.2
+    RandomRotation(degrees=[90.0, 90.0], interpolation=nearest, expand=False, fill=0)
+    RandomAffine(degrees=[-15.0, 15.0], translate=(0, 0.05), scale=(0.8, 1.2))
+    ColorJitter(brightness=(0.5, 1.5), contrast=[0.0, 2.0], saturation=(0.5, 1.5), hue=(-0.1, 0.1))
+)
+)
+
+batch size is 4 
+

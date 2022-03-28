@@ -1,6 +1,0 @@
-data/
-*.ipynb
-__pycache__
-.ipynb_checkpoints
-*.zip
-*.pth

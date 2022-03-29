@@ -13,7 +13,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import pandas as pd
-from sklearn.metrics import f1_score
+from sklearn.metrics import f1_score, accuracy_score, cohen_kappa_score
 import numpy as np
 
 from utils import seed_everything, Logger
@@ -85,10 +85,13 @@ def eval(model, loader, criterion):
             outputs = torch.argmax(outputs, dim=1)
             o = np.append(o, outputs)
             l = np.append(l, labels)
+            
+            
 
         f1 = f1_score(l, o, average="macro")
-
-        return tot_loss/N, f1
+        accuracy = accuracy_score(l,o)
+        kappa = cohen_kappa_score(l, o)
+        return tot_loss/N, f1, accuracy, kappa
 
 def train(nepochs, batch_size, labels, path, resume_from=None):
     # Initialize logger
@@ -132,7 +135,7 @@ def train(nepochs, batch_size, labels, path, resume_from=None):
     criterion = nn.CrossEntropyLoss()
     #criterion = nn.CrossEntropyLoss(weight=weights.cuda())
     optimizer = optim.Adam(model.parameters(), lr=1e-4)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.1, patience=5)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=3, verbose=True)
     if resume_from is not None:
         print('Loading from checkpoint ...')
         checkpoint = torch.load(resume_from)
@@ -172,11 +175,14 @@ def train(nepochs, batch_size, labels, path, resume_from=None):
             bar.set_description('loss: %.5f' % (smooth_loss))
             
         ## compute train and val losses 
-        train_loss, train_f1 = eval(model, train_loader, criterion)
+        train_loss, train_f1, train_accuracy, train_kappa = eval(model, train_loader, criterion)
         # train_loss, train_f1 = 0,0
         #train_loss = total_train_loss/batch_print_save
-        val_loss, val_f1 = eval(model, valid_loader, criterion)
-        logger.print_and_write('[%d, %5d] training loss: %.3f - validation loss: %.3f - training macro f1 score: %.3f - validation macro f1 score: %.3f' %(epoch, batch_idx + 1, train_loss, val_loss, train_f1, val_f1))
+        val_loss, val_f1, val_accuracy, val_kappa = eval(model, valid_loader, criterion)
+        logger.print_and_write('Epoch %d train | loss: %.3f - accuracy: %.3f - f1 score: %.3f - kappa: %.3f'\
+            %(epoch, train_loss, train_accuracy, train_f1, train_kappa))
+        logger.print_and_write('Epoch %d valid | loss: %.3f - accuracy: %.3f - f1 score: %.3f - kappa: %.3f'\
+            %(epoch, val_loss, val_accuracy, val_f1, val_kappa))
         #total_train_loss = 0
         ## scheduler step
         scheduler.step(val_loss)

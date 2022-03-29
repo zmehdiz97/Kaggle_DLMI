@@ -3,7 +3,7 @@ from torch import nn
 from efficientnet_pytorch import EfficientNet
 from utils import AdaptiveConcatPool2d
 class Model(nn.Module):
-    def __init__(self, arch='resnext50_32x4d_ssl',n=6,ps=0.2):
+    def __init__(self, arch='resnext50_32x4d_ssl',n=6,ps=0.4):
         super().__init__()
         m = torch.hub.load('facebookresearch/semi-supervised-ImageNet1K-models', arch)
         nc = list(m.children())[-1].in_features
@@ -26,7 +26,7 @@ class Model(nn.Module):
         return x
       
 class effnet(nn.Module):
-    def __init__(self, backbone='efficientnet-b0', n=6, p=0.2):
+    def __init__(self, backbone='efficientnet-b0', n=6, p=0.4):
         super(effnet, self).__init__()
         #enet = EfficientNet.from_pretrained('efficientnet-b0',
         #                                          num_classes=n)

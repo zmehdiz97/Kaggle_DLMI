@@ -23,7 +23,7 @@ def img2tensor(img,dtype:np.dtype=np.float32):
     img = np.transpose(img,(2,0,1))
     return torch.from_numpy(img.astype(dtype, copy=False))
 
-STATS = ((1-0.87622766, 1-0.75070891, 1-0.83482135) ,(1-0.39165375, 1-0.51765024, 1-0.41787194)) #(0.63, 0.41, 0.59), (0.48, 0.46, 0.43)
+STATS = ((1-0.87622766, 1-0.75070891, 1-0.83482135) ,(0.39165375, 0.51765024, 0.41787194)) #(0.63, 0.41, 0.59), (0.48, 0.46, 0.43)
 def get_aug(p=0.2, train=True):
     trans = [
         transforms.ToTensor(),

@@ -16,9 +16,9 @@ import pandas as pd
 from sklearn.metrics import f1_score, accuracy_score, cohen_kappa_score
 import numpy as np
 
-from utils import seed_everything, Logger
+from utils import seed_everything, Logger, Kloss, Combine_loss, mse_loss
 from dataset import get_aug, CustomDataset
-from model import Model, effnet
+from model import Model, effnet, OptimizedRounder
 
 
 
@@ -41,15 +41,18 @@ def main():
     # If user wants to train
     if args.function == "train":
         parser = ArgumentParser()
-        parser.add_argument('--labels', type=str, default='data/trainv2.csv', help='Path to CSV with image ids and labels')
-        parser.add_argument('--path', type=str, default='data/train_L1_256x256', help='Path to image tiles')
+        parser.add_argument('--labels', type=str, default='data/trainv3.csv', help='Path to CSV with image ids and labels')
+        parser.add_argument('--path', type=str, default='data/train_L1_128x128', help='Path to image tiles')
         parser.add_argument('--nepochs', type=int, default=100, help='Number of epochs')
         parser.add_argument('--bs', type=int, default=2, help='batch size')
+        parser.add_argument('--fold', type=int, default=0, help='index fold (should be referred in csv)')
 
         parser.add_argument('--resume_from', default=None, help='Path to checkpoint')
-
+        parser.add_argument('--mode', '-m', help='model mode: classification, regression, hybrid',
+                            default='classification', type=str,
+                            choices=['classification', 'regression', 'hybrid'])
         args = parser.parse_args(sub_args)
-        train(args.nepochs, args.bs, args.labels, args.path, args.resume_from)
+        train(args.nepochs, args.bs, args.labels, args.path, args.resume_from, args.fold, args.mode)
 
     ## If user wants to test
     #elif args.function == "test":
@@ -67,7 +70,7 @@ def eval(model, loader, criterion):
         tot_loss = 0
         l = np.array([])
         o = np.array([])
-        for i, (images, labels) in enumerate(loader):
+        for i, (images, labels) in enumerate(tqdm(loader)):
             #if (i+1) * batch_size > 100000:   # 100000 data samples should be sufficient to estimate the loss and the f1 score
             #    break                         # to speed up the training
             if use_gpu: 
@@ -90,10 +93,44 @@ def eval(model, loader, criterion):
 
         f1 = f1_score(l, o, average="macro")
         accuracy = accuracy_score(l,o)
-        kappa = cohen_kappa_score(l, o)
+        kappa = cohen_kappa_score(l, o, weights='quadratic')
         return tot_loss/N, f1, accuracy, kappa
+def eval_regression(model, loader, criterion, mode, optimized_rounder, optimize_rounder=True):
+    with torch.no_grad():
+        model.eval()
+        N = 0
+        tot_loss = 0
+        preds, valid_labels = [], []
+        for i, (images, labels) in enumerate(loader):
+            #if (i+1) * batch_size > 100000:   # 100000 data samples should be sufficient to estimate the loss and the f1 score
+            #    break                         # to speed up the training
+            if use_gpu: 
+                images, labels = images.cuda(), labels.cuda().squeeze(-1)
+            outputs = model(images)
 
-def train(nepochs, batch_size, labels, path, resume_from=None):
+            # Loss
+            loss = criterion(outputs, labels)
+            N += images.shape[0]
+            tot_loss += images.shape[0] * loss.item()
+            if mode=='hybrid':
+                preds.append(outputs[0].cpu().numpy())
+                valid_labels.append(labels[:,:1].cpu().numpy())
+            else:
+                preds.append(outputs.cpu().numpy())
+                valid_labels.append(labels.cpu().numpy())
+        preds = np.concatenate(preds)
+        valid_labels = np.concatenate(valid_labels)
+        if optimize_rounder:
+            optimized_rounder.fit(preds, valid_labels)
+        coefficients = optimized_rounder.coefficients()
+        print(coefficients)
+        final_preds = optimized_rounder.predict(preds, coefficients)
+        f1 = f1_score(valid_labels, final_preds, average="macro")
+        accuracy = accuracy_score(valid_labels,final_preds)
+        kappa = cohen_kappa_score(valid_labels, final_preds, weights='quadratic')
+        return tot_loss/N, f1, accuracy, kappa, optimized_rounder
+            
+def train(nepochs, batch_size, labels, path, resume_from=None, fold=0, mode='classification'):
     # Initialize logger
     experiment_time = str(datetime.datetime.now())
     logger = Logger(experiment_time)
@@ -106,7 +143,7 @@ def train(nepochs, batch_size, labels, path, resume_from=None):
         logger.print_and_write('Using GPU \n')
     else:
         logger.print_and_write('Using CPU \n')
-    train_data_transforms = get_aug(p=0.2, train=True)
+    train_data_transforms = get_aug(p=0.35, train=True)
     validation_data_transforms = get_aug(p=0.2, train=False)
 
     # Load data
@@ -115,11 +152,11 @@ def train(nepochs, batch_size, labels, path, resume_from=None):
     logger.write("batch size is {} \n".format(batch_size))
     print('started data loading ...')
         
-    N=16
+    N=32
     df = pd.read_csv(labels)
     print(df.columns)
-    train_dataset = CustomDataset(df,N, path, train=True, transforms=train_data_transforms)
-    valid_dataset = CustomDataset(df,N, path, train=False, transforms=validation_data_transforms)
+    train_dataset = CustomDataset(df,N, path, fold, train=True, transforms=train_data_transforms, mode=mode)
+    valid_dataset = CustomDataset(df,N, path, fold, train=False, transforms=validation_data_transforms, mode=mode)
 
     train_loader = DataLoader(train_dataset, batch_size, shuffle=True, num_workers=num_workers)
     valid_loader = DataLoader(valid_dataset, batch_size, shuffle=False, num_workers=num_workers)
@@ -128,14 +165,19 @@ def train(nepochs, batch_size, labels, path, resume_from=None):
     print('finished data loading !')
 
     # Initialize a model according to the name of model defined in params.py
-    model = effnet()
+    model = effnet()# Model(mode=mode)
     if use_gpu: model.cuda()
     logger.write(f'{model} \n')
-
-    criterion = nn.CrossEntropyLoss()
+    
+    if mode =='classification': criterion = nn.CrossEntropyLoss()
+    elif mode =='regression': criterion = mse_loss
+    else: criterion = Combine_loss
+    if mode != 'classification': 
+        optimized_rounder = OptimizedRounder()
+        
     #criterion = nn.CrossEntropyLoss(weight=weights.cuda())
     optimizer = optim.Adam(model.parameters(), lr=1e-4)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=3, verbose=True)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=4, verbose=True)
     if resume_from is not None:
         print('Loading from checkpoint ...')
         checkpoint = torch.load(resume_from)
@@ -160,13 +202,13 @@ def train(nepochs, batch_size, labels, path, resume_from=None):
         bar = tqdm(train_loader)
         train_loss = []
         for batch_idx, (images, labels) in enumerate(bar):
-            
             if use_gpu: 
                 images, labels = images.cuda(), labels.cuda().squeeze(-1)
             optimizer.zero_grad()
             outputs = model(images)
             loss = criterion(outputs, labels)
-            #total_train_loss += loss
+
+            #loss = criterion(outputs[0].float(), labels[:,0].float())
             loss.backward()
             optimizer.step()
 
@@ -175,10 +217,14 @@ def train(nepochs, batch_size, labels, path, resume_from=None):
             bar.set_description('loss: %.5f' % (smooth_loss))
             
         ## compute train and val losses 
-        train_loss, train_f1, train_accuracy, train_kappa = eval(model, train_loader, criterion)
-        # train_loss, train_f1 = 0,0
-        #train_loss = total_train_loss/batch_print_save
-        val_loss, val_f1, val_accuracy, val_kappa = eval(model, valid_loader, criterion)
+        if mode =='classification':
+            val_loss, val_f1, val_accuracy, val_kappa = eval(model, valid_loader, criterion)
+            train_loss, train_f1, train_accuracy, train_kappa = eval(model, train_loader, criterion)
+        else:
+            val_loss, val_f1, val_accuracy, val_kappa, optimized_rounder = eval_regression(
+                model, valid_loader, criterion, mode, optimized_rounder, optimize_rounder=True)
+            train_loss, train_f1, train_accuracy, train_kappa, optimized_rounder = eval_regression(
+                model, train_loader, criterion, mode, optimized_rounder, optimize_rounder=False)
         logger.print_and_write('Epoch %d train | loss: %.3f - accuracy: %.3f - f1 score: %.3f - kappa: %.3f'\
             %(epoch, train_loss, train_accuracy, train_f1, train_kappa))
         logger.print_and_write('Epoch %d valid | loss: %.3f - accuracy: %.3f - f1 score: %.3f - kappa: %.3f'\

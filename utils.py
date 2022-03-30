@@ -5,7 +5,7 @@ import os
 from torch import nn
 import os
 import datetime
-
+from torch.nn import functional as F
 def seed_everything(seed):
     random.seed(seed)
     os.environ['PYTHONHASHSEED'] = str(seed)
@@ -45,3 +45,20 @@ class Logger:
     def write(self, log):
         with open(self.logfile, 'a') as f:
             f.write(log + '\n')
+
+Ng=6
+y_shift = 2.035
+def Kloss(x, target):
+    x = Ng*torch.sigmoid(x.float()).view(-1) - 0.5
+    target = target.float()
+    return 1.0 - (2.0*((x-y_shift)*(target-y_shift)).sum() - 1e-3)/\
+        (((x-y_shift)**2).sum() + ((target-y_shift)**2).sum() + 1e-3)
+
+def Combine_loss(x, target):
+    crit1, crit2 = nn.MSELoss(), nn.CrossEntropyLoss()
+    loss_c = crit1(x[0].float(),target[:,:1].float())
+    loss_caux = crit2(x[1].float(),target[:,1])
+    return loss_c + 0.1*loss_caux
+def mse_loss(x, target):
+    crit = nn.MSELoss()
+    return crit(x, target[:,None].float())

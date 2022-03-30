@@ -22,8 +22,10 @@ def img2tensor(img,dtype:np.dtype=np.float32):
     if img.ndim==2 : img = np.expand_dims(img,2)
     img = np.transpose(img,(2,0,1))
     return torch.from_numpy(img.astype(dtype, copy=False))
-
-STATS = ((1-0.87622766, 1-0.75070891, 1-0.83482135) ,(0.39165375, 0.51765024, 0.41787194)) #(0.63, 0.41, 0.59), (0.48, 0.46, 0.43)
+#L1 128x128x128 mean: [0.79718421 0.58146681 0.72599565] , std: [0.3969224  0.48599503 0.3936849 ]
+#STATS = ((0.79718421 0.58146681 0.72599565) , std: [0.3969224  0.48599503 0.3936849 ]
+#STATS = ((1-0.87622766, 1-0.75070891, 1-0.83482135) ,(0.39165375, 0.51765024, 0.41787194)) #(0.63, 0.41, 0.59), (0.48, 0.46, 0.43)
+STATS = ((0.485, 0.456, 0.406),(0.229, 0.224, 0.225))
 def get_aug(p=0.2, train=True):
     trans = [
         transforms.ToTensor(),
@@ -32,13 +34,14 @@ def get_aug(p=0.2, train=True):
     aug = [
         transforms.RandomHorizontalFlip(p),
         transforms.RandomVerticalFlip(p),
-        transforms.RandomApply(torch.nn.ModuleList([
-            transforms.RandomRotation(degrees=(90, 90)),
-            transforms.RandomAffine(degrees=(-15, 15), 
-                                    translate=(0, 0.05), 
-                                    scale=(0.8, 1.2)),
-            transforms.ColorJitter(brightness=(0.5,1.5), contrast=(1), saturation=(0.5,1.5), hue=(-0.1,0.1))
-        ]), p=p)
+        
+        #transforms.RandomApply(torch.nn.ModuleList([
+        #    transforms.RandomRotation(degrees=(90, 90)),
+        #    transforms.RandomAffine(degrees=(-15, 15), 
+        #                            translate=(0, 0.05), 
+        #                            scale=(0.8, 1.2)),
+        #    transforms.ColorJitter(brightness=(0.5,1.5), contrast=(1), saturation=(0.5,1.5), hue=(-0.1,0.1))
+        #]), p=p)
     ]
     if train:
         return transforms.Compose(trans+aug)
@@ -46,8 +49,10 @@ def get_aug(p=0.2, train=True):
         return transforms.Compose(trans)
 
 class CustomDataset(Dataset):
-    def __init__(self, df, N, path, train=True, transforms=None):
-        self.df = df.loc[df.train == 1].copy() if train else df.loc[df.train == 0].copy()
+    def __init__(self, df, N, path, fold, train=True, transforms=None, mode='classification'):
+        assert mode in ['classification', 'regression', 'hybrid']
+        self.mode = mode
+        self.df = df.loc[df.split != fold].copy() if train else df.loc[df.split == fold].copy()
         self.df = self.df.reset_index(drop=True)
         self.path = path
         self.transforms = transforms
@@ -57,12 +62,16 @@ class CustomDataset(Dataset):
         return len(self.df)
 
     def __getitem__(self, idx):
-        labels = self.df.iloc[idx][['isup_grade']].astype(np.int).values
+        if self.mode=='hybrid':
+            labels = self.df.iloc[idx][['isup_grade','score']].astype(np.int).values
+        else:
+            labels = self.df.iloc[idx][['isup_grade']].astype(np.int).values
+
         #provider = self.df.iloc[idx].data_provider
         
         image_id = self.df.iloc[idx].image_id
         imgs = []
-        ntiles = 36
+        ntiles = 128
         n = self.N if self.train else 2*self.N
         if self.train:  ids = random.choices(range(ntiles),k=n)
         else: ids = range(min(n,ntiles))
@@ -84,8 +93,28 @@ if __name__ == "__main__":
     TRAIN = 'data/train_128x128'
     LABELS = 'data/train.csv'
     N=128
+    nfolds = 4
     seed_everything(SEED)
+    
+    df = pd.read_csv(LABELS).set_index('image_id')
+    files = sorted(set([p[:32] for p in os.listdir(TRAIN)]))
+    df.gleason_score = df.gleason_score.replace('negative','0+0')
+    df = df.loc[files]
+    df = df.reset_index()
+    splits = StratifiedKFold(n_splits=nfolds, random_state=SEED, shuffle=True)
+    splits = list(splits.split(df,df.isup_grade))
+    folds_splits = np.zeros(len(df)).astype(np.int)
+    for i in range(nfolds):
+        folds_splits[splits[i][1]] = i
+    df['split'] = folds_splits
+    Ng, Ns = df.nunique()[2], df.nunique()[3]
+    score_map = {s:i for i,s in enumerate(df.gleason_score.unique())}
+    df['score'] = df.gleason_score.map(score_map)
+    df.to_csv(LABELS.replace('train', 'trainv3'), index=False)
+    print(df.isup_grade.mean(), df.nunique()[2], df.nunique()[3])
 
+
+    '''
     df = pd.read_csv(LABELS).set_index('image_id')
     files = sorted(set([p[:32] for p in os.listdir(TRAIN)]))
     df.gleason_score = df.gleason_score.replace('negative','0+0')
@@ -93,17 +122,4 @@ if __name__ == "__main__":
     df = df.reset_index()
     train_test = np.random.choice([0, 1], size=len(df), p=[.2, .8])
     df['train'] = train_test
-    df.to_csv(LABELS.replace('train', 'trainv2'), index=False)
-
-
-    ds = CustomDataset(df,N, TRAIN, train=True, transforms=get_aug(.5))
-    x,y = ds[5]
-    print(x.shape)
-    x = x.reshape(N, 128,128,3).numpy()
-    #t = 255 - ((x.permute(0,2,3,1)*std + mean)*255.0).byte()
-    plt.figure(figsize=(16,32))
-    for i in range(len(x)):
-        plt.subplot(16,8,i+1)
-        plt.imshow(x[i])
-        plt.axis('off')
-        plt.subplots_adjust(wspace=None, hspace=None)
+    '''

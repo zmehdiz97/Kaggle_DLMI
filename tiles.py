@@ -9,10 +9,10 @@ os.environ['PATH'] = 'C:\\Users\\mehdi\\anaconda3\\openslide-win64-20171122\\bin
 os.add_dll_directory('C:\\Users\\mehdi\\anaconda3\\openslide-win64-20171122\\bin')
 import openslide
 
-TRAIN = 'data/train'
-OUT_TRAIN = 'data/train_L1_128x128'
-sz = 256 #tile size
-N = 64  #number of tiles
+TRAIN = 'data/test'
+OUT_TRAIN = 'data/test_L1_128x128'
+sz = 128 #tile size
+N = 128  #number of tiles
 L = 1    #[0-2] tiff layer
 A = 0    #[0-3] if not equal to 0, adds extra sz//2 padding to generate new tiles
 

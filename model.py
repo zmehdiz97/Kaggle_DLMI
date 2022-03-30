@@ -6,6 +6,9 @@ from sklearn.metrics import cohen_kappa_score
 import numpy as np
 from functools import partial
 import scipy as sp
+from torchvision import models 
+
+
 
 class Model(nn.Module):
     def __init__(self, arch='resnext50_32x4d_ssl',ps=0.4, mode='classification'):
@@ -40,8 +43,13 @@ class Model(nn.Module):
           return x
       
 class effnet(nn.Module):
-    def __init__(self, backbone='efficientnet-b0', n=6, p=0.4, mode='classification'):
+    def __init__(self, backbone='efficientnet-b0', p=0.4, mode='classification'):
         super(effnet, self).__init__()
+        assert mode in ['classification', 'regression', 'hybrid']
+        self.mode = mode
+        if self.mode == 'classification': n = 6
+        elif self.mode == 'regression': n = 1
+        else: n = 11
         #enet = EfficientNet.from_pretrained('efficientnet-b0',
         #                                          num_classes=n)
         enet = torch.hub.load('NVIDIA/DeepLearningExamples:torchhub',
@@ -69,7 +77,10 @@ class effnet(nn.Module):
         x = x.view(-1,n,shape[1],shape[2],shape[3]).permute(0,2,1,3,4).contiguous()\
           .view(-1,shape[1],shape[2]*n,shape[3])
         x = self.head(x)
-        return x
+        if self.mode == 'hybrid':
+          return x[:,:1],x[:,1:]
+        else: 
+          return x
       
 
 def quadratic_weighted_kappa(y_hat, y):
@@ -122,3 +133,37 @@ class OptimizedRounder():
 
     def coefficients(self):
         return self.coef_['x']
+    
+
+class MyResNet34(nn.Module):
+    def __init__(self, pretrained=True, dropout=0.4, mode = 'classification'):
+        super(MyResNet34, self).__init__()
+        assert mode in ['classification', 'regression', 'hybrid']
+        self.mode = mode
+        if self.mode == 'classification': n = 6
+        elif self.mode == 'regression': n = 1
+        else: n = 11
+        model = models.resnet34(pretrained)
+        num_ftrs = model.fc.in_features
+        self.enc = nn.Sequential(*list(model.children())[:-2])
+        
+        self.head = nn.Sequential(AdaptiveConcatPool2d(),nn.Flatten(),
+                            nn.Linear(2*num_ftrs,512),nn.Mish(),nn.GroupNorm(32,512),
+                            nn.Dropout(dropout),nn.Linear(512,n))
+        
+
+    def forward(self, x):
+        shape = x.shape
+        n = shape[1]
+        x = x.view(-1,shape[2],shape[3],shape[4])
+        x = self.enc(x)
+        
+        shape = x.shape
+
+        x = x.view(-1,n,shape[1],shape[2],shape[3]).permute(0,2,1,3,4).contiguous()\
+          .view(-1,shape[1],shape[2]*n,shape[3])
+        x = self.head(x)
+        if self.mode == 'hybrid':
+          return x[:,:1],x[:,1:]
+        else: 
+          return x

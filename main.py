@@ -18,7 +18,7 @@ import numpy as np
 
 from utils import seed_everything, Logger, Kloss, Combine_loss, mse_loss
 from dataset import get_aug, CustomDataset
-from model import Model, effnet, OptimizedRounder
+from model import Model, effnet, OptimizedRounder, MyResNet34
 
 
 
@@ -135,16 +135,16 @@ def train(nepochs, batch_size, labels, path, resume_from=None, fold=0, mode='cla
     experiment_time = str(datetime.datetime.now())
     logger = Logger(experiment_time)
 
-    SEED = 43
-    seed_everything(SEED)
+    #SEED = 43
+    #seed_everything(SEED)
 
     # Check device
     if use_gpu:
         logger.print_and_write('Using GPU \n')
     else:
         logger.print_and_write('Using CPU \n')
-    train_data_transforms = get_aug(p=0.35, train=True)
-    validation_data_transforms = get_aug(p=0.2, train=False)
+    train_data_transforms = get_aug(p=0.5, train=True)
+    validation_data_transforms = get_aug(train=False)
 
     # Load data
     num_workers = 4
@@ -165,7 +165,7 @@ def train(nepochs, batch_size, labels, path, resume_from=None, fold=0, mode='cla
     print('finished data loading !')
 
     # Initialize a model according to the name of model defined in params.py
-    model = effnet()# Model(mode=mode)
+    model = effnet(mode=mode)#MyResNet34(mode=mode)#effnet()# Model(mode=mode)
     if use_gpu: model.cuda()
     logger.write(f'{model} \n')
     
@@ -174,9 +174,11 @@ def train(nepochs, batch_size, labels, path, resume_from=None, fold=0, mode='cla
     else: criterion = Combine_loss
     if mode != 'classification': 
         optimized_rounder = OptimizedRounder()
-        
+    else: optimized_rounder = None
+    
     #criterion = nn.CrossEntropyLoss(weight=weights.cuda())
-    optimizer = optim.Adam(model.parameters(), lr=1e-4)
+    #optimizer = optim.SGD(model.parameters(), lr=1e-4, weight_decay=1e-5)
+    optimizer = optim.Adam(model.parameters(), lr=1e-4, weight_decay=1e-5)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=4, verbose=True)
     if resume_from is not None:
         print('Loading from checkpoint ...')
@@ -193,7 +195,7 @@ def train(nepochs, batch_size, labels, path, resume_from=None, fold=0, mode='cla
     os.makedirs(models_dir)
 
     #best_loss = 1e10
-    best_f1 = 0
+    best_kappa = 0
     #total_train_loss = 0
     for epoch in range(nepochs):
 
@@ -223,8 +225,10 @@ def train(nepochs, batch_size, labels, path, resume_from=None, fold=0, mode='cla
         else:
             val_loss, val_f1, val_accuracy, val_kappa, optimized_rounder = eval_regression(
                 model, valid_loader, criterion, mode, optimized_rounder, optimize_rounder=True)
+
             train_loss, train_f1, train_accuracy, train_kappa, optimized_rounder = eval_regression(
                 model, train_loader, criterion, mode, optimized_rounder, optimize_rounder=False)
+
         logger.print_and_write('Epoch %d train | loss: %.3f - accuracy: %.3f - f1 score: %.3f - kappa: %.3f'\
             %(epoch, train_loss, train_accuracy, train_f1, train_kappa))
         logger.print_and_write('Epoch %d valid | loss: %.3f - accuracy: %.3f - f1 score: %.3f - kappa: %.3f'\
@@ -241,17 +245,18 @@ def train(nepochs, batch_size, labels, path, resume_from=None, fold=0, mode='cla
         #     best_loss = val_loss
 
         ## save a model every time the f1 score improves
-        if val_f1 > best_f1: 
+        if val_kappa > best_kappa: 
             logger.print_and_write('saving new best model !')
             model_file = os.path.join(models_dir, 'best.pth')
             checkpoint = {
                 'epoch': epoch + 1,
                 'model': model.state_dict(),
+                'rounder': optimized_rounder.coefficients() if mode!='classification' else None,
                 'optimizer': optimizer.state_dict(),
                 'scheduler': scheduler.state_dict()
             }
             torch.save(checkpoint, model_file)
-            best_f1 = val_f1
+            best_kappa = val_kappa
     
 
     logger.print_and_write(f"Finished training at {datetime.datetime.now()} \n")

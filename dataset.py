@@ -16,6 +16,9 @@ import torch
 from torch.utils.data import Dataset
 from torchvision.io import read_image
 import torchvision.transforms as transforms
+import albumentations as A
+from albumentations.pytorch import ToTensorV2
+
 from utils import seed_everything
 
 def img2tensor(img,dtype:np.dtype=np.float32):
@@ -26,27 +29,48 @@ def img2tensor(img,dtype:np.dtype=np.float32):
 #STATS = ((0.79718421 0.58146681 0.72599565) , std: [0.3969224  0.48599503 0.3936849 ]
 #STATS = ((1-0.87622766, 1-0.75070891, 1-0.83482135) ,(0.39165375, 0.51765024, 0.41787194)) #(0.63, 0.41, 0.59), (0.48, 0.46, 0.43)
 STATS = ((0.485, 0.456, 0.406),(0.229, 0.224, 0.225))
-def get_aug(p=0.2, train=True):
-    trans = [
-        transforms.ToTensor(),
-        transforms.Normalize(STATS[0], STATS[1])
-    ]
-    aug = [
-        transforms.RandomHorizontalFlip(p),
-        transforms.RandomVerticalFlip(p),
-        
-        #transforms.RandomApply(torch.nn.ModuleList([
-        #    transforms.RandomRotation(degrees=(90, 90)),
-        #    transforms.RandomAffine(degrees=(-15, 15), 
-        #                            translate=(0, 0.05), 
-        #                            scale=(0.8, 1.2)),
-        #    transforms.ColorJitter(brightness=(0.5,1.5), contrast=(1), saturation=(0.5,1.5), hue=(-0.1,0.1))
-        #]), p=p)
-    ]
-    if train:
-        return transforms.Compose(trans+aug)
-    else:
-        return transforms.Compose(trans)
+
+def get_aug(p=0.8, train=True):
+    if not train: p=0
+    aug = A.Compose([
+            A.HorizontalFlip(p=p),
+            A.VerticalFlip(p=p),
+            A.RandomRotate90(p=p),
+            A.ShiftScaleRotate(shift_limit=0.0625, scale_limit=0.3, rotate_limit=15, p=0.8*p, 
+                            border_mode=cv2.BORDER_CONSTANT),
+            A.OneOf([
+                A.HueSaturationValue(10,15,10),
+                A.CLAHE(clip_limit=2),
+                A.RandomBrightnessContrast(),            
+            ], p=0.35*p),
+            A.Normalize(
+              mean=[0.485, 0.456, 0.406],
+              std=[0.229, 0.224, 0.225],
+            ),
+            ToTensorV2()
+    ])
+    return aug
+#def get_aug(p=0.2, train=True):
+#    trans = [
+#        transforms.ToTensor(),
+#        transforms.Normalize(STATS[0], STATS[1])
+#    ]
+#    aug = [
+#        transforms.RandomHorizontalFlip(p),
+#        transforms.RandomVerticalFlip(p),
+#        
+#        #transforms.RandomApply(torch.nn.ModuleList([
+#        #    transforms.RandomRotation(degrees=(90, 90)),
+#        #    transforms.RandomAffine(degrees=(-15, 15), 
+#        #                            translate=(0, 0.05), 
+#        #                            scale=(0.8, 1.2)),
+#        #    transforms.ColorJitter(brightness=(0.5,1.5), contrast=(1), saturation=(0.5,1.5), hue=(-0.1,0.1))
+#        #]), p=p)
+#    ]
+#    if train:
+#        return transforms.Compose(trans+aug)
+#    else:
+#        return transforms.Compose(trans)
 
 class CustomDataset(Dataset):
     def __init__(self, df, N, path, fold, train=True, transforms=None, mode='classification'):
@@ -71,21 +95,52 @@ class CustomDataset(Dataset):
         
         image_id = self.df.iloc[idx].image_id
         imgs = []
-        ntiles = 128
+        ntiles = 36
         n = self.N if self.train else 2*self.N
         if self.train:  ids = random.choices(range(ntiles),k=n)
         else: ids = range(min(n,ntiles))
-        
         for i in ids:
             #img = Image.open(os.path.join(self.path,image_id+'_'+str(i)+'.png'))
             img = cv2.cvtColor(cv2.imread(os.path.join(self.path,image_id+'_'+str(i)+'.png')), cv2.COLOR_BGR2RGB)
             img = 255 - img
             if self.transforms is not None:
-                img = self.transforms(img)
+                #img = self.transforms(img)
+                img = self.transforms(image=img)['image']
             imgs.append(img)
         #imgs = [img2tensor((img/255.0 - mean)/std,np.float32) for img in imgs]
 
         return torch.stack(imgs,0), labels
+    
+class TestDataset(Dataset):
+    def __init__(self, df, N, path):
+        self.df = df
+        self.df = self.df.reset_index(drop=True)
+        self.path = path
+        self.N=N
+        self.transforms = A.Compose(A.Normalize(mean=[0.485, 0.456, 0.406],
+                                                std=[0.229, 0.224, 0.225]),
+                                    ToTensorV2())
+        
+    def __len__(self):
+        return len(self.df)
+
+    def __getitem__(self, idx):
+
+        #provider = self.df.iloc[idx].data_provider
+        
+        image_id = self.df.iloc[idx].image_id
+        imgs = []
+        
+        for i in range(self.N):
+            print(os.path.join(self.path,image_id+'_'+str(i)+'.png'))
+            #img = Image.open(os.path.join(self.path,image_id+'_'+str(i)+'.png'))
+            img = cv2.cvtColor(cv2.imread(os.path.join(self.path,image_id+'_'+str(i)+'.png')), cv2.COLOR_BGR2RGB)
+            img = 255 - img
+            img = self.transforms(image=img)['image']
+            imgs.append(img)
+        #imgs = [img2tensor((img/255.0 - mean)/std,np.float32) for img in imgs]
+
+        return torch.stack(imgs,0), image_id
 
 if __name__ == "__main__":
     print(torch.cuda.is_available())

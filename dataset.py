@@ -36,13 +36,13 @@ def get_aug(p=0.8, train=True):
             A.HorizontalFlip(p=p),
             A.VerticalFlip(p=p),
             A.RandomRotate90(p=p),
-            A.ShiftScaleRotate(shift_limit=0.0625, scale_limit=0.3, rotate_limit=15, p=0.8*p, 
-                            border_mode=cv2.BORDER_CONSTANT),
-            A.OneOf([
-                A.HueSaturationValue(10,15,10),
-                A.CLAHE(clip_limit=2),
-                A.RandomBrightnessContrast(),            
-            ], p=0.35*p),
+            #A.ShiftScaleRotate(shift_limit=0.0625, scale_limit=0.3, rotate_limit=15, p=0.8*p, 
+            #                border_mode=cv2.BORDER_CONSTANT),
+            #A.OneOf([
+            #    A.HueSaturationValue(10,15,10),
+            #    A.CLAHE(clip_limit=2),
+            #    A.RandomBrightnessContrast(),            
+            #], p=0.35*p),
             A.Normalize(
               mean=[0.485, 0.456, 0.406],
               std=[0.229, 0.224, 0.225],
@@ -106,7 +106,7 @@ class CustomDataset(Dataset):
             if self.transforms is not None:
                 #img = self.transforms(img)
                 img = self.transforms(image=img)['image']
-            imgs.append(img)
+            imgs.append(img/255.0)
         #imgs = [img2tensor((img/255.0 - mean)/std,np.float32) for img in imgs]
 
         return torch.stack(imgs,0), labels

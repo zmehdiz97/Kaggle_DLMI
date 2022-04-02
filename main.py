@@ -42,7 +42,7 @@ def main():
     if args.function == "train":
         parser = ArgumentParser()
         parser.add_argument('--labels', type=str, default='data/trainv3.csv', help='Path to CSV with image ids and labels')
-        parser.add_argument('--path', type=str, default='data/train_L1_128x128', help='Path to image tiles')
+        parser.add_argument('--path', type=str, default='data/train_L1_256x256', help='Path to image tiles')
         parser.add_argument('--nepochs', type=int, default=100, help='Number of epochs')
         parser.add_argument('--bs', type=int, default=2, help='batch size')
         parser.add_argument('--fold', type=int, default=0, help='index fold (should be referred in csv)')
@@ -152,7 +152,7 @@ def train(nepochs, batch_size, labels, path, resume_from=None, fold=0, mode='cla
     logger.write("batch size is {} \n".format(batch_size))
     print('started data loading ...')
         
-    N=32
+    N=16
     df = pd.read_csv(labels)
     print(df.columns)
     train_dataset = CustomDataset(df,N, path, fold, train=True, transforms=train_data_transforms, mode=mode)
@@ -178,7 +178,7 @@ def train(nepochs, batch_size, labels, path, resume_from=None, fold=0, mode='cla
     
     #criterion = nn.CrossEntropyLoss(weight=weights.cuda())
     #optimizer = optim.SGD(model.parameters(), lr=1e-4, weight_decay=1e-5)
-    optimizer = optim.Adam(model.parameters(), lr=1e-4, weight_decay=1e-5)
+    optimizer = optim.Adam(model.parameters(), lr=1e-4, weight_decay=5e-5)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=4, verbose=True)
     if resume_from is not None:
         print('Loading from checkpoint ...')

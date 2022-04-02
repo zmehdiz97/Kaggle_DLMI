@@ -1,14 +1,14 @@
-
 import os
 import cv2
 import skimage.io
-from tqdm import tqdm
+from tqdm.notebook import tqdm
 import numpy as np
 import math
-
 from matplotlib import pyplot as plt
 import warnings
-from PIL import Image
+os.environ['PATH'] = 'C:\\Users\\mehdi\\anaconda3\\openslide-win64-20171122\\bin' + ';' + os.environ['PATH']
+os.add_dll_directory('C:\\Users\\mehdi\\anaconda3\\openslide-win64-20171122\\bin')
+import openslide
 
 #the functions below are borrowed from https://www.kaggle.com/akensert/panda-optimized-tiling-tf-data-dataset
 def _mask_tissue(image, kernel_size=(7, 7), gray_threshold=220):
@@ -266,30 +266,23 @@ def get_tiles(img,img0=None):
             p = cv2.resize(p, (2*sz,2*sz), interpolation = cv2.INTER_AREA)
             tiles.append(p)
     if len(tiles) <= 1: return tiles
-    return [x for y, x in sorted(zip([t.sum() for t in tiles], tiles), key=lambda pair: pair[0])]    
+    return [x for y, x in sorted(zip([t.sum() for t in tiles], tiles), key=lambda pair: pair[0])]
 
 TRAIN = 'data/train'
 OUT_TRAIN = 'data/train_adv_256x256'
-sz = 128
+sz = 256
 
 os.makedirs(OUT_TRAIN, exist_ok=True)
-
-fnames = os.listdir(OUT_TRAIN)# + os.listdir(OUT_MASKS)
-rdy_dict = {}
-for name in fnames:
-    n = name.split('_')[0]
-    if n in rdy_dict:
-        rdy_dict[n] += 1
-    else: rdy_dict[n] = 1
-
 names = [name[:-5] for name in os.listdir(TRAIN)]
 def convert(name):
-    if name in rdy_dict and rdy_dict[name] == N:#2*N:
-        return [],[]
     x_tot,x2_tot = [],[]
-    img = skimage.io.MultiImage(os.path.join(TRAIN,name+'.tiff'))[0]
-    print(img.shape)
-    tiles = get_tiles(img)
+    slide = openslide.OpenSlide(os.path.join(TRAIN,name+'.tiff'))
+    dim = slide.level_dimensions
+    img0 = np.array(slide.read_region((0,0), 1, dim[1]))[:,:,:3]
+    img = np.array(slide.read_region((0,0), 2, dim[2]))[:,:,:3]
+
+    #img0,img = skimage.io.MultiImage(os.path.join(TRAIN,name+'.tiff'))[:2]
+    tiles = get_tiles(img,img0)
     for idx,img in enumerate(tiles):
         x_tot.append((img/255.0).reshape(-1,3).mean(0))
         x2_tot.append(((img/255.0)**2).reshape(-1,3).mean(0)) 
@@ -298,9 +291,7 @@ def convert(name):
     return x_tot,x2_tot
 
 num_cores = 6#multiprocessing.cpu_count()
-#results = Parallel(n_jobs=num_cores)(delayed(convert)(name) for name in tqdm(names))
 results = [convert(name) for name in tqdm(names)]
-
 x_tot,x2_tot = [],[]
 for r in results:
     x_tot += r[0]

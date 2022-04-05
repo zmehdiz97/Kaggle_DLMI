@@ -1,5 +1,7 @@
 import torch
 from torch import nn
+import torch.nn.functional as F
+from torch.nn.parameter import Parameter
 from efficientnet_pytorch import EfficientNet
 from utils import AdaptiveConcatPool2d
 from sklearn.metrics import cohen_kappa_score
@@ -7,6 +9,7 @@ import numpy as np
 from functools import partial
 import scipy as sp
 from torchvision import models 
+from pooling import AdaptiveConcatPool2d_Attention
 
 
 
@@ -43,7 +46,7 @@ class Model(nn.Module):
           return x
       
 class effnet(nn.Module):
-    def __init__(self, backbone='efficientnet-b0', p=0.4, mode='classification'):
+    def __init__(self, backbone='efficientnet-b0', p=0.5, mode='classification'):
         super(effnet, self).__init__()
         assert mode in ['classification', 'regression', 'hybrid']
         self.mode = mode
@@ -167,3 +170,47 @@ class MyResNet34(nn.Module):
           return x[:,:1],x[:,1:]
         else: 
           return x
+      
+class Attention_Model(nn.Module):
+    '''
+        Pytorch Model used in PANDA Challenge
+    '''
+    def __init__(self,dropout=0.4,scale_op=True,gated=False):
+        super().__init__()
+        self.scale_op=scale_op
+        enet = torch.hub.load('NVIDIA/DeepLearningExamples:torchhub',
+                              'nvidia_efficientnet_b0', pretrained=True)
+        back_feature = enet.classifier.fc.in_features
+        self.base_model = nn.Sequential(*list(enet.children())[:-1])
+        
+        self.avg_pool=nn.AdaptiveAvgPool2d(1)
+
+        self.attention=AdaptiveConcatPool2d_Attention(in_ch=back_feature,hidden=512,dropout=dropout,gated=gated)
+
+        self.reg_head = nn.Sequential(
+            nn.Dropout(p=dropout),
+            nn.Linear(2*back_feature,1,bias=True),
+        )
+        self.cls_head = nn.Sequential(
+            nn.Dropout(p=dropout),
+            nn.Linear(2*back_feature,6,bias=True),
+        )
+
+
+    def forward(self,x):
+        # x [bs,n,3,h,w]
+        B,N,C,H,W=x.shape
+        x=x.view(-1,C,H,W)
+        x=self.base_model(x)
+ 
+        x=self.avg_pool(x).view(x.size(0),-1)
+
+        x=x.view(B,N,-1)
+        x,A=self.attention(x)
+
+        reg_pred=self.reg_head(x).view(-1)
+        if self.scale_op:
+            reg_pred=7.*torch.sigmoid(reg_pred)-1.
+        cls_pred=self.cls_head(x)
+        return reg_pred,cls_pred,A
+    

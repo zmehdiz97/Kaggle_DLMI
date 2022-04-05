@@ -16,9 +16,9 @@ import pandas as pd
 from sklearn.metrics import f1_score, accuracy_score, cohen_kappa_score
 import numpy as np
 
-from utils import seed_everything, Logger, Kloss, Combine_loss, mse_loss
+from utils import seed_everything, Logger, Kloss, hybrid_loss, both_loss, mse_loss
 from dataset import get_aug, CustomDataset
-from model import Model, effnet, OptimizedRounder, MyResNet34
+from model import Model, effnet, OptimizedRounder, MyResNet34, Attention_Model
 
 
 
@@ -50,7 +50,7 @@ def main():
         parser.add_argument('--resume_from', default=None, help='Path to checkpoint')
         parser.add_argument('--mode', '-m', help='model mode: classification, regression, hybrid',
                             default='classification', type=str,
-                            choices=['classification', 'regression', 'hybrid'])
+                            choices=['classification', 'regression', 'hybrid', 'both'])
         args = parser.parse_args(sub_args)
         train(args.nepochs, args.bs, args.labels, args.path, args.resume_from, args.fold, args.mode)
 
@@ -115,6 +115,9 @@ def eval_regression(model, loader, criterion, mode, optimized_rounder, optimize_
             if mode=='hybrid':
                 preds.append(outputs[0].cpu().numpy())
                 valid_labels.append(labels[:,:1].cpu().numpy())
+            elif mode == 'both':
+                preds.append(outputs[0].cpu().numpy())
+                valid_labels.append(labels.cpu().numpy())
             else:
                 preds.append(outputs.cpu().numpy())
                 valid_labels.append(labels.cpu().numpy())
@@ -165,13 +168,15 @@ def train(nepochs, batch_size, labels, path, resume_from=None, fold=0, mode='cla
     print('finished data loading !')
 
     # Initialize a model according to the name of model defined in params.py
-    model = effnet(mode=mode)#MyResNet34(mode=mode)#effnet()# Model(mode=mode)
+    model = Attention_Model() #effnet(mode=mode)#MyResNet34(mode=mode)#effnet()# Model(mode=mode)
     if use_gpu: model.cuda()
     logger.write(f'{model} \n')
     
     if mode =='classification': criterion = nn.CrossEntropyLoss()
     elif mode =='regression': criterion = mse_loss
-    else: criterion = Combine_loss
+    elif mode == 'hybrid': criterion = hybrid_loss
+    else: criterion = both_loss
+    
     if mode != 'classification': 
         optimized_rounder = OptimizedRounder()
     else: optimized_rounder = None

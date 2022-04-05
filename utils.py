@@ -54,11 +54,19 @@ def Kloss(x, target):
     return 1.0 - (2.0*((x-y_shift)*(target-y_shift)).sum() - 1e-3)/\
         (((x-y_shift)**2).sum() + ((target-y_shift)**2).sum() + 1e-3)
 
-def Combine_loss(x, target):
+def hybrid_loss(x, target):
     crit1, crit2 = nn.MSELoss(), nn.CrossEntropyLoss()
     loss_c = crit1(x[0].float(),target[:,:1].float())
     loss_caux = crit2(x[1].float(),target[:,1])
     return loss_c + 0.1*loss_caux
+
+def both_loss(x, target):
+    reg_pred, cls_pred, _ = x
+    crit1, crit2 = nn.MSELoss(), nn.CrossEntropyLoss()
+    loss_reg = crit1(reg_pred.float(),target.float())
+    #loss_cls = crit2(cls_pred.float(),target)
+    return loss_reg #+ loss_cls
+    
 def mse_loss(x, target):
     crit = nn.MSELoss()
     return crit(x, target[:,None].float())

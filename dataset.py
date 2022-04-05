@@ -74,7 +74,7 @@ def get_aug(p=0.8, train=True):
 
 class CustomDataset(Dataset):
     def __init__(self, df, N, path, fold, train=True, transforms=None, mode='classification'):
-        assert mode in ['classification', 'regression', 'hybrid']
+        assert mode in ['classification', 'regression', 'hybrid', 'both']
         self.mode = mode
         self.df = df.loc[df.split != fold].copy() if train else df.loc[df.split == fold].copy()
         self.df = self.df.reset_index(drop=True)

@@ -36,13 +36,13 @@ def get_aug(p=0.8, train=True):
             A.HorizontalFlip(p=p),
             A.VerticalFlip(p=p),
             A.RandomRotate90(p=p),
-            #A.ShiftScaleRotate(shift_limit=0.0625, scale_limit=0.3, rotate_limit=15, p=0.8*p, 
-            #                border_mode=cv2.BORDER_CONSTANT),
-            #A.OneOf([
-            #    A.HueSaturationValue(10,15,10),
-            #    A.CLAHE(clip_limit=2),
-            #    A.RandomBrightnessContrast(),            
-            #], p=0.35*p),
+            A.ShiftScaleRotate(shift_limit=0.0625, scale_limit=0.3, rotate_limit=15, p=0.3*p, 
+                            border_mode=cv2.BORDER_CONSTANT),
+            A.OneOf([
+                A.HueSaturationValue(10,15,10),
+                A.CLAHE(clip_limit=2),
+                A.RandomBrightnessContrast(),            
+            ], p=0.35*p),
             A.Normalize(
               mean=[0.485, 0.456, 0.406],
               std=[0.229, 0.224, 0.225],
@@ -95,10 +95,11 @@ class CustomDataset(Dataset):
         
         image_id = self.df.iloc[idx].image_id
         imgs = []
-        ntiles = 36
-        n = self.N if self.train else 2*self.N
+        ntiles = 128
+        n = self.N #if self.train else 2*self.N
         if self.train:  ids = random.choices(range(ntiles),k=n)
         else: ids = range(min(n,ntiles))
+        ids = random.choices(range(ntiles),k=n)
         for i in ids:
             #img = Image.open(os.path.join(self.path,image_id+'_'+str(i)+'.png'))
             img = cv2.cvtColor(cv2.imread(os.path.join(self.path,image_id+'_'+str(i)+'.png')), cv2.COLOR_BGR2RGB)

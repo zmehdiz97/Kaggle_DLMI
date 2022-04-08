@@ -172,16 +172,25 @@ class MyResNet34(nn.Module):
           return x
       
 class Attention_Model(nn.Module):
-    '''
-        Pytorch Model used in PANDA Challenge
-    '''
-    def __init__(self,dropout=0.4,scale_op=True,gated=False):
+
+    def __init__(self,dropout=0.5,scale_op=True,gated=False, arch='effnet', mode='both'):
         super().__init__()
+        assert mode in ['hybrid', 'both']
+        self.mode = mode
+
+        if self.mode == 'hybrid': n = 10
+        else: n = 6
         self.scale_op=scale_op
-        enet = torch.hub.load('NVIDIA/DeepLearningExamples:torchhub',
-                              'nvidia_efficientnet_b0', pretrained=True)
-        back_feature = enet.classifier.fc.in_features
-        self.base_model = nn.Sequential(*list(enet.children())[:-1])
+        if arch =='effnet':
+            bachbone = torch.hub.load('NVIDIA/DeepLearningExamples:torchhub',
+                                'nvidia_efficientnet_b0', pretrained=True)
+            back_feature = bachbone.classifier.fc.in_features
+            self.base_model = nn.Sequential(*list(bachbone.children())[:-1])
+        else:
+            backbone = models.resnet34(pretrained=True)
+            back_feature = backbone.fc.in_features
+            self.base_model = nn.Sequential(*list(backbone.children())[:-2])
+
         
         self.avg_pool=nn.AdaptiveAvgPool2d(1)
 
@@ -193,7 +202,7 @@ class Attention_Model(nn.Module):
         )
         self.cls_head = nn.Sequential(
             nn.Dropout(p=dropout),
-            nn.Linear(2*back_feature,6,bias=True),
+            nn.Linear(2*back_feature,n,bias=True),
         )
 
 

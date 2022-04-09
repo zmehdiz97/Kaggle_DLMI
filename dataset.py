@@ -74,7 +74,7 @@ def get_aug(p=0.8, train=True):
 
 class CustomDataset(Dataset):
     def __init__(self, df, N, path, fold, train=True, transforms=None, mode='classification'):
-        assert mode in ['classification', 'regression', 'hybrid', 'both']
+        assert mode in ['classification', 'regression', 'hybrid', 'both', 'binning']
         self.mode = mode
         self.df = df.loc[df.split != fold].copy() if train else df.loc[df.split == fold].copy()
         self.df = self.df.reset_index(drop=True)
@@ -86,17 +86,20 @@ class CustomDataset(Dataset):
         return len(self.df)
 
     def __getitem__(self, idx):
-        if self.mode=='hybrid':
-            labels = self.df.iloc[idx][['isup_grade','score']].astype(np.int).values
+        if self.mode == 'binning':
+            labels = np.zeros(5).astype(np.float32)
+            labels[:self.df.iloc[idx][['isup_grade']].astype(int).values[0]] = 1.
+        elif self.mode=='hybrid':
+            labels = self.df.iloc[idx][['isup_grade','score']].astype(int).values
         else:
-            labels = self.df.iloc[idx][['isup_grade']].astype(np.int).values
+            labels = self.df.iloc[idx][['isup_grade']].astype(int).values
 
         #provider = self.df.iloc[idx].data_provider
         
         image_id = self.df.iloc[idx].image_id
         imgs = []
-        ntiles = 128
-        n = self.N #if self.train else 2*self.N
+        ntiles = 36
+        n = self.N if self.train else 2*self.N
         if self.train:  ids = random.choices(range(ntiles),k=n)
         else: ids = range(min(n,ntiles))
         ids = random.choices(range(ntiles),k=n)

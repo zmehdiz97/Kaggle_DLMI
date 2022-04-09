@@ -18,7 +18,7 @@ import numpy as np
 
 from utils import seed_everything, Logger, Kloss, hybrid_loss, both_loss, mse_loss
 from dataset import get_aug, CustomDataset
-from model import Model, effnet, OptimizedRounder, MyResNet34, Attention_Model
+from model import Model, effnet, OptimizedRounder, MyResNet34, Attention_Model, Binning_Attention_Model
 
 
 
@@ -42,7 +42,7 @@ def main():
     if args.function == "train":
         parser = ArgumentParser()
         parser.add_argument('--labels', type=str, default='data/trainv3.csv', help='Path to CSV with image ids and labels')
-        parser.add_argument('--path', type=str, default='data/train_L1_128x128', help='Path to image tiles')
+        parser.add_argument('--path', type=str, default='data/train_L1_256x256', help='Path to image tiles')
         parser.add_argument('--nepochs', type=int, default=100, help='Number of epochs')
         parser.add_argument('--bs', type=int, default=2, help='batch size')
         parser.add_argument('--fold', type=int, default=0, help='index fold (should be referred in csv)')
@@ -50,7 +50,7 @@ def main():
         parser.add_argument('--resume_from', default=None, help='Path to checkpoint')
         parser.add_argument('--mode', '-m', help='model mode: classification, regression, hybrid',
                             default='classification', type=str,
-                            choices=['classification', 'regression', 'hybrid', 'both'])
+                            choices=['classification', 'regression', 'hybrid', 'both', 'binning'])
         args = parser.parse_args(sub_args)
         train(args.nepochs, args.bs, args.labels, args.path, args.resume_from, args.fold, args.mode)
 
@@ -63,7 +63,7 @@ def main():
     #    if not os.path.exists('./outputs'): os.mkdir('./outputs')
     #    test(test_data_transforms, './outputs', args.PATH_TO_CHECKPOINT, args.PATH_TO_TEST_SET, model_args)
     
-def eval(model, loader, criterion):
+def eval(model, loader, criterion, mode):
     with torch.no_grad():
         model.eval()
         N = 0
@@ -85,12 +85,16 @@ def eval(model, loader, criterion):
             # F1 score
             outputs = torch.Tensor.cpu(outputs)
             labels = torch.Tensor.cpu(labels)
-            outputs = torch.argmax(outputs, dim=1)
+            if mode == 'binning':
+                outputs = outputs.sigmoid().sum(1).detach().round()
+                labels = labels.sum(1)
+            else:
+                outputs = torch.argmax(outputs, dim=1)
             o = np.append(o, outputs)
             l = np.append(l, labels)
             
             
-
+        print(l.shape, o.shape)
         f1 = f1_score(l, o, average="macro")
         accuracy = accuracy_score(l,o)
         kappa = cohen_kappa_score(l, o, weights='quadratic')
@@ -155,7 +159,7 @@ def train(nepochs, batch_size, labels, path, resume_from=None, fold=0, mode='cla
     logger.write("batch size is {} \n".format(batch_size))
     print('started data loading ...')
         
-    N=64
+    N=16
     df = pd.read_csv(labels)
     print(df.columns)
     train_dataset = CustomDataset(df,N, path, fold, train=True, transforms=train_data_transforms, mode=mode)
@@ -168,12 +172,13 @@ def train(nepochs, batch_size, labels, path, resume_from=None, fold=0, mode='cla
     print('finished data loading !')
 
     # Initialize a model according to the name of model defined in params.py
-    model = Attention_Model(mode= mode) #effnet(mode=mode)#MyResNet34(mode=mode)#effnet()# Model(mode=mode)
+    model = Binning_Attention_Model() #effnet(mode=mode)#MyResNet34(mode=mode)#effnet()# Model(mode=mode)
     if use_gpu: model.cuda()
     logger.write(f'{model} \n')
     
     if mode =='classification': criterion = nn.CrossEntropyLoss()
     elif mode =='regression': criterion = mse_loss
+    elif mode =='binning': criterion = nn.BCEWithLogitsLoss()
     elif mode == 'hybrid': criterion = hybrid_loss
     else: criterion = both_loss
     
@@ -224,9 +229,10 @@ def train(nepochs, batch_size, labels, path, resume_from=None, fold=0, mode='cla
             bar.set_description('loss: %.5f' % (smooth_loss))
             
         ## compute train and val losses 
-        if mode =='classification':
-            val_loss, val_f1, val_accuracy, val_kappa = eval(model, valid_loader, criterion)
-            train_loss, train_f1, train_accuracy, train_kappa = eval(model, train_loader, criterion)
+        if mode in ['classification', 'binning']:
+            val_loss, val_f1, val_accuracy, val_kappa = eval(model, valid_loader, criterion, mode)
+            train_loss, train_f1, train_accuracy, train_kappa = eval(model, train_loader, criterion, mode)
+            
         else:
             val_loss, val_f1, val_accuracy, val_kappa, optimized_rounder = eval_regression(
                 model, valid_loader, criterion, mode, optimized_rounder, optimize_rounder=True)
@@ -256,7 +262,7 @@ def train(nepochs, batch_size, labels, path, resume_from=None, fold=0, mode='cla
             checkpoint = {
                 'epoch': epoch + 1,
                 'model': model.state_dict(),
-                'rounder': optimized_rounder.coefficients() if mode!='classification' else None,
+                'rounder': optimized_rounder.coefficients() if mode not in ['classification', 'binning'] else None,
                 'optimizer': optimizer.state_dict(),
                 'scheduler': scheduler.state_dict()
             }

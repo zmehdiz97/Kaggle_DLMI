@@ -223,3 +223,45 @@ class Attention_Model(nn.Module):
         cls_pred=self.cls_head(x)
         return reg_pred,cls_pred,A
     
+class Binning_Attention_Model(nn.Module):
+
+    def __init__(self,dropout=0.5,scale_op=True,gated=False, arch='effnet', n=5):
+        super().__init__()
+        
+        self.scale_op=scale_op
+        if arch =='effnet':
+            bachbone = torch.hub.load('NVIDIA/DeepLearningExamples:torchhub',
+                                'nvidia_efficientnet_b0', pretrained=True)
+            back_feature = bachbone.classifier.fc.in_features
+            self.base_model = nn.Sequential(*list(bachbone.children())[:-1])
+        else:
+            backbone = models.resnet34(pretrained=True)
+            back_feature = backbone.fc.in_features
+            self.base_model = nn.Sequential(*list(backbone.children())[:-2])
+
+        
+        self.avg_pool=nn.AdaptiveAvgPool2d(1)
+
+        self.attention=AdaptiveConcatPool2d_Attention(in_ch=back_feature,hidden=512,dropout=dropout,gated=gated)
+
+        self.head = nn.Sequential(
+            nn.Dropout(p=dropout),
+            nn.Linear(2*back_feature,n,bias=True),
+        )
+
+
+    def forward(self,x):
+        # x [bs,n,3,h,w]
+        B,N,C,H,W=x.shape
+        x=x.view(-1,C,H,W)
+        x=self.base_model(x)
+ 
+        x=self.avg_pool(x).view(x.size(0),-1)
+
+        x=x.view(B,N,-1)
+        x,_=self.attention(x)
+
+    
+        pred=self.head(x)
+        return pred
+    

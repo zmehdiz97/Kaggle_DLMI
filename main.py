@@ -94,7 +94,6 @@ def eval(model, loader, criterion, mode):
             l = np.append(l, labels)
             
             
-        print(l.shape, o.shape)
         f1 = f1_score(l, o, average="macro")
         accuracy = accuracy_score(l,o)
         kappa = cohen_kappa_score(l, o, weights='quadratic')

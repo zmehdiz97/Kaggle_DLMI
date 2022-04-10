@@ -1,7 +1,4 @@
 import os
-from radam import *
-#from csvlogger import *
-from mish import *
 import cv2
 #from albumentations import *
 from sklearn.model_selection import StratifiedKFold
@@ -10,8 +7,6 @@ from sklearn.metrics import confusion_matrix
 import random
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-from PIL import Image
 import torch
 from torch.utils.data import Dataset
 from torchvision.io import read_image
@@ -21,14 +16,6 @@ from albumentations.pytorch import ToTensorV2
 
 from utils import seed_everything
 
-def img2tensor(img,dtype:np.dtype=np.float32):
-    if img.ndim==2 : img = np.expand_dims(img,2)
-    img = np.transpose(img,(2,0,1))
-    return torch.from_numpy(img.astype(dtype, copy=False))
-#L1 128x128x128 mean: [0.79718421 0.58146681 0.72599565] , std: [0.3969224  0.48599503 0.3936849 ]
-#STATS = ((0.79718421 0.58146681 0.72599565) , std: [0.3969224  0.48599503 0.3936849 ]
-#STATS = ((1-0.87622766, 1-0.75070891, 1-0.83482135) ,(0.39165375, 0.51765024, 0.41787194)) #(0.63, 0.41, 0.59), (0.48, 0.46, 0.43)
-STATS = ((0.485, 0.456, 0.406),(0.229, 0.224, 0.225))
 
 def get_aug(p=0.8, train=True):
     if not train: p=0

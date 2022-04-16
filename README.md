@@ -1,6 +1,7 @@
-# Deep learning in medical imaging:
-# Prostate cancer grade assessment challenge
+# Deep learning in medical imaging: Prostate cancer grade assessment challenge
 [Report](https://github.com/zmehdiz97/Kaggle_DLMI/blob/main/DLMI_challenge_report.pdf)
+
+![Teaser image](figs/model.png)
 
 > **Abstract:** *In recent years, deep learning technology has been used for analysing medical images in various fields.
 The use of artificial intelligence (AI) in diagnostic medical imaging is undergoing extensive evaluation. AI has shown impressive accuracy and sensitivity in the identification of imaging abnormalities and promises to enhance tissue-based detection and characterisation.
